@@ -1,0 +1,26 @@
+[
+  {
+    "id": "738ba750-1d02-4276-b347-c7b843d146ea",
+    "name": "Kandang JTP",
+    "location": "Sumatera",
+    "created_at": "2026-03-12T12:31:28.324154+00:00"
+  },
+  {
+    "id": "9893c171-2ae9-4242-9602-9ec355ce79ce",
+    "name": "Kandang BBK",
+    "location": "Sumatera",
+    "created_at": "2026-03-12T12:29:42.83821+00:00"
+  },
+  {
+    "id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+    "name": "REC KANDANG BBK",
+    "location": null,
+    "created_at": "2026-03-12T13:59:16.528312+00:00"
+  },
+  {
+    "id": "0c0581f5-a86c-4228-be02-e3c5103d5c55",
+    "name": "REC KANDANG JTP",
+    "location": null,
+    "created_at": "2026-03-12T13:59:20.713781+00:00"
+  }
+]

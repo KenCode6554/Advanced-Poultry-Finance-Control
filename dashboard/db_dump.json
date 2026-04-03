@@ -1,0 +1,198 @@
+{
+  "farms": [
+    {
+      "id": "738ba750-1d02-4276-b347-c7b843d146ea",
+      "name": "Kandang JTP",
+      "location": "Sumatera",
+      "created_at": "2026-03-12T12:31:28.324154+00:00"
+    },
+    {
+      "id": "9893c171-2ae9-4242-9602-9ec355ce79ce",
+      "name": "Kandang BBK",
+      "location": "Sumatera",
+      "created_at": "2026-03-12T12:29:42.83821+00:00"
+    },
+    {
+      "id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "REC KANDANG BBK",
+      "location": null,
+      "created_at": "2026-03-12T13:59:16.528312+00:00"
+    },
+    {
+      "id": "0c0581f5-a86c-4228-be02-e3c5103d5c55",
+      "name": "REC KANDANG JTP",
+      "location": null,
+      "created_at": "2026-03-12T13:59:20.713781+00:00"
+    }
+  ],
+  "kandang": [
+    {
+      "id": "524a548b-f242-4e57-853c-05398e676198",
+      "farm_id": "9893c171-2ae9-4242-9602-9ec355ce79ce",
+      "name": "Kandang BBK",
+      "populasi": 5000,
+      "chick_in_date": "2024-01-01",
+      "created_at": "2026-03-12T12:29:42.83821+00:00"
+    },
+    {
+      "id": "4cd6b533-a76d-4bcd-bba5-42870db72ad1",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "2 BBK",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:16.800466+00:00"
+    },
+    {
+      "id": "aa585186-1a48-4ab7-8cb1-97c16140ccd2",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "3A+3B AL1001",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:17.11153+00:00"
+    },
+    {
+      "id": "40938543-fc72-4ae1-a86a-b78f5f19a54b",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "6A BBK  (AL 1001)",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:17.414122+00:00"
+    },
+    {
+      "id": "4ef176e9-7c89-4a45-92ed-b070e283e9ff",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "6B BBK  (AL 1001)",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:17.651431+00:00"
+    },
+    {
+      "id": "437aa9c8-0865-43b6-8596-fd491fe5b49e",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "7A BBK",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:17.916445+00:00"
+    },
+    {
+      "id": "39b4b455-2f1f-4455-aa46-7116b8870a4f",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "7B BBK",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:18.129477+00:00"
+    },
+    {
+      "id": "f79f2bd9-1443-42e0-98bb-d4e10fe00852",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "12 BBK",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:18.335988+00:00"
+    },
+    {
+      "id": "2fdc0646-1f07-45ae-ac3c-7d3e42543eee",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "14 B4 BBK",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:18.5775+00:00"
+    },
+    {
+      "id": "f5084147-596a-49da-b96c-3890dfcc7faf",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "16 BBK TQ988",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:18.93043+00:00"
+    },
+    {
+      "id": "2d05d61c-602d-4e3d-8168-7158096c7870",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "BBK Kd 9a AL1001",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:19.093025+00:00"
+    },
+    {
+      "id": "1556139e-f01a-4cd7-9371-c1d2df517491",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "BBK Kd 9B AL1001",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:19.350697+00:00"
+    },
+    {
+      "id": "4f6b84d6-904b-42f7-b222-47b35db0f843",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "BBK Kd 11 AL1001 (01)",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:19.660519+00:00"
+    },
+    {
+      "id": "eb4fe6f3-ec86-44ee-8ba9-5bfd8e561ebb",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "17 BBK (AL 1001)",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:19.982613+00:00"
+    },
+    {
+      "id": "21471e32-253e-4123-9eaf-c5f5f8b2f5de",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "15 BBK AL101",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:20.205518+00:00"
+    },
+    {
+      "id": "c8d4f016-26c8-42a2-8b84-2ce69438ab99",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "3A+3B (AL 1001)",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:20.370995+00:00"
+    },
+    {
+      "id": "bf737431-5cc3-426a-85a7-a1238c13d06f",
+      "farm_id": "8f589dc0-2111-4831-b322-fb46f943eae3",
+      "name": "1A BBK  (AL 1002)",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:20.584941+00:00"
+    },
+    {
+      "id": "4e986e31-da2f-45f6-81ad-6600f8d50de6",
+      "farm_id": "0c0581f5-a86c-4228-be02-e3c5103d5c55",
+      "name": "4  PL241T JTP Mojogedang",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:20.882401+00:00"
+    },
+    {
+      "id": "b2dd4d7b-eade-45d5-94a0-442a086763b0",
+      "farm_id": "0c0581f5-a86c-4228-be02-e3c5103d5c55",
+      "name": "5 PL241P JTP Mojogedang",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:21.080932+00:00"
+    },
+    {
+      "id": "36161321-5f1a-4500-9157-2cda1099f764",
+      "farm_id": "0c0581f5-a86c-4228-be02-e3c5103d5c55",
+      "name": "7 PL241P JTP Mojogedang",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:21.230643+00:00"
+    },
+    {
+      "id": "bea6965e-8830-4923-8887-1184ac598737",
+      "farm_id": "0c0581f5-a86c-4228-be02-e3c5103d5c55",
+      "name": "Jantan JTP Mojogedang",
+      "populasi": null,
+      "chick_in_date": null,
+      "created_at": "2026-03-12T13:59:21.390079+00:00"
+    }
+  ]
+}

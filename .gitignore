@@ -1,0 +1,44 @@
+# ─── Secrets & Credentials ───────────────────────────────────────────────────
+.env
+.env.local
+.env*.local
+service-account.json
+*.pem
+*.key
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.spec
+
+# ─── Node / Dashboard ────────────────────────────────────────────────────────
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.env
+dashboard/.env.local
+dashboard/.env*.local
+
+# ─── Temp & Cache ────────────────────────────────────────────────────────────
+.tmp/
+tmp/
+*.tmp
+*.cache
+*.log
+
+# ─── Large Auto-Generated Files ──────────────────────────────────────────────
+models.json
+models.txt
+temp_debug.xlsx
+
+# ─── OS / Editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
