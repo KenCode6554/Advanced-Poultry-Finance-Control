@@ -20,9 +20,6 @@ build/
 # ─── Node / Dashboard ────────────────────────────────────────────────────────
 dashboard/node_modules/
 dashboard/dist/
-dashboard/.env
-dashboard/.env.local
-dashboard/.env*.local
 
 # ─── Temp & Cache ────────────────────────────────────────────────────────────
 .tmp/
