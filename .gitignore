@@ -1,5 +1,6 @@
 # ─── Secrets & Credentials ───────────────────────────────────────────────────
 .env
+!dashboard/.env
 .env.local
 .env*.local
 service-account.json
