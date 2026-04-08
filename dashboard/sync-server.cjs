@@ -13,7 +13,7 @@ app.post('/api/sync', (req, res) => {
     console.log('Starting synchronization process...');
     
     // Path to the python script (relative to this file in the dashboard folder)
-    const pythonScript = path.join(__dirname, '..', 'tools', 'run_full_sync.py');
+    const pythonScript = path.join(__dirname, '..', 'tools', 'incremental_sync.py');
     
     // Spawn python process
     const python = spawn('python', [pythonScript]);

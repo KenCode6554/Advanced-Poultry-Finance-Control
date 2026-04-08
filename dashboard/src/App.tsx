@@ -114,27 +114,44 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
   async function handleRefresh() {
     setLoading(true);
+    const isLocal = window.location.hostname === 'localhost';
+    const endpoint = isLocal ? 'http://localhost:3001/api/sync' : '/api/sync';
     
-    // Trigger Sync Bridge (Node.js -> Python -> Google Drive -> Supabase)
+    setSyncStatus(`Connecting to ${isLocal ? 'Local Bridge' : 'Vercel Sync'}...`);
+    
+    // Trigger Sync Bridge (Node.js/Vercel -> Python -> Google Drive -> Supabase)
     try {
-      const syncResponse = await fetch('http://localhost:3001/api/sync', { 
+      setSyncStatus('Syncing from Google Drive... (Expected: 10-60s)');
+      const syncResponse = await fetch(endpoint, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
+      
+      if (!syncResponse.ok) {
+        throw new Error(`HTTP error! status: ${syncResponse.status}`);
+      }
+      
       const syncResult = await syncResponse.json();
-      if (syncResult.success) {
-        console.log('Remote sync successful:', syncResult.message);
+      // Serverless bridge returns {status: "success"} instead of {success: true}
+      if (syncResult.success || syncResult.status === 'success') {
+        setSyncStatus('Sync Successful! Updating charts...');
+        await fetchDashboardData();
       } else {
-        console.warn('Remote sync failed, proceeding with stale data:', syncResult.message);
+        setSyncStatus('Sync Warning: ' + (syncResult.message || syncResult.error || 'Check server logs'));
+        console.warn('Sync failed:', syncResult);
       }
     } catch (e) {
-      console.error('Sync bridge unreachable, fetching only from Supabase:', e);
+      setSyncStatus('Sync unreachable or timed out. Fetching cached data...');
+      console.error('Sync error:', e);
+      await fetchDashboardData();
+    } finally {
+      setLoading(false);
+      setTimeout(() => setSyncStatus(null), 5000);
     }
-
-    // After sync (or failure), fetch the fresh data from the database
-    await fetchDashboardData();
   }
 
   // ─── Gap Engine (TypeScript port of gap_engine.py) ─────────────────────────
@@ -998,10 +1015,22 @@ export default function App() {
                 </p>
               </div>
               {activeTab !== 'ai' && (
-                <button onClick={handleRefresh} className="primary-button" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-                  Refresh Data
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  {syncStatus && (
+                    <span style={{ fontSize: '0.8rem', color: 'var(--primary)', opacity: 0.8, animation: 'pulse 2s infinite' }}>
+                      {syncStatus}
+                    </span>
+                  )}
+                  <button 
+                    onClick={handleRefresh} 
+                    className="primary-button" 
+                    disabled={loading}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: loading ? 0.7 : 1 }}
+                  >
+                    <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                    {loading ? 'Syncing...' : 'Refresh Data'}
+                  </button>
+                </div>
               )}
             </header>
 

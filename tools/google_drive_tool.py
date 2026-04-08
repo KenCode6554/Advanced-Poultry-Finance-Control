@@ -4,6 +4,7 @@ import io
 import re
 import pandas as pd
 import openpyxl
+import sys
 from datetime import datetime, date, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -15,21 +16,45 @@ load_dotenv()
 class GoogleDriveTool:
     def __init__(self):
         self.creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+        self.creds_json = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
         self.creds = None
         self.drive_service = None
         self.sheets_service = None
         
+        # Priority 1: GOOGLE_APPLICATION_CREDENTIALS (file path)
         if self.creds_path and os.path.exists(self.creds_path):
+            print(f"   [DRIVE] Loading service account from file: {self.creds_path}")
             self.creds = service_account.Credentials.from_service_account_file(
                 self.creds_path, scopes=[
                     'https://www.googleapis.com/auth/drive',
                     'https://www.googleapis.com/auth/spreadsheets.readonly'
                 ]
             )
+        # Priority 2: GOOGLE_SERVICE_ACCOUNT_JSON (raw JSON string)
+        elif self.creds_json:
+            print(f"   [DRIVE] Loading service account from environment variable string...")
+            try:
+                info = json.loads(self.creds_json)
+                self.creds = service_account.Credentials.from_service_account_info(
+                    info, scopes=[
+                        'https://www.googleapis.com/auth/drive',
+                        'https://www.googleapis.com/auth/spreadsheets.readonly'
+                    ]
+                )
+            except Exception as e:
+                print(f"   [DRIVE] Error parsing GOOGLE_SERVICE_ACCOUNT_JSON: {e}")
+
+        if self.creds:
+            print("   [DRIVE] Initializing Google Drive service (Discovery v3)...")
+            sys.stdout.flush()
             self.drive_service = build('drive', 'v3', credentials=self.creds)
+            
+            print("   [DRIVE] Initializing Google Sheets service (Discovery v4)...")
+            sys.stdout.flush()
             self.sheets_service = build('sheets', 'v4', credentials=self.creds)
+            print("   [DRIVE] Google Services initialized successfully.")
         else:
-            print(f"WARNING: Service account file not found at {self.creds_path}")
+            print(f"WARNING: No Google credentials found (check GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_SERVICE_ACCOUNT_JSON)")
 
     def get_farm_folders(self, root_folder_id):
         query = f"'{root_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
@@ -648,7 +673,7 @@ class GoogleDriveTool:
                     for fmt in ["%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d"]:
                         try: row_dt = datetime.strptime(d_str, fmt).date(); break
                         except: continue
-                    if row_dt and row_dt > base_date and row_dt <= datetime.now().date():
+                    if row_dt and row_dt > base_date and row_dt <= (datetime.now().date() - timedelta(days=1)):
                         try:
                             m = int(float(str(r[m_col]).replace(",","").strip() or 0))
                             a = int(float(str(r[a_col]).replace(",","").strip() or 0)) if len(r) > a_col else 0
