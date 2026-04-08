@@ -18,6 +18,8 @@ build/
 *.spec
 
 # ─── Node / Dashboard ────────────────────────────────────────────────────────
+node_modules/
+dist/
 dashboard/node_modules/
 dashboard/dist/
 

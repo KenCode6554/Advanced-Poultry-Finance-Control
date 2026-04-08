@@ -10,7 +10,7 @@ import {
   TrendingUp,
   Activity,
   Layers,
-  RefreshCw,
+
   MessageSquare,
   ChevronDown,
   TrendingDown,
@@ -113,46 +113,6 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
-
-  async function handleRefresh() {
-    setLoading(true);
-    const isLocal = window.location.hostname === 'localhost';
-    const endpoint = isLocal ? 'http://localhost:3001/api/sync' : '/api/sync';
-    
-    setSyncStatus(`Connecting to ${isLocal ? 'Local Bridge' : 'Vercel Sync'}...`);
-    
-    // Trigger Sync Bridge (Node.js/Vercel -> Python -> Google Drive -> Supabase)
-    try {
-      setSyncStatus('Syncing from Google Drive... (Expected: 10-60s)');
-      const syncResponse = await fetch(endpoint, { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (!syncResponse.ok) {
-        throw new Error(`HTTP error! status: ${syncResponse.status}`);
-      }
-      
-      const syncResult = await syncResponse.json();
-      // Serverless bridge returns {status: "success"} instead of {success: true}
-      if (syncResult.success || syncResult.status === 'success') {
-        setSyncStatus('Sync Successful! Updating charts...');
-        await fetchDashboardData();
-      } else {
-        setSyncStatus('Sync Warning: ' + (syncResult.message || syncResult.error || 'Check server logs'));
-        console.warn('Sync failed:', syncResult);
-      }
-    } catch (e) {
-      setSyncStatus('Sync unreachable or timed out. Fetching cached data...');
-      console.error('Sync error:', e);
-      await fetchDashboardData();
-    } finally {
-      setLoading(false);
-      setTimeout(() => setSyncStatus(null), 5000);
-    }
-  }
 
   // ─── Gap Engine (TypeScript port of gap_engine.py) ─────────────────────────
   const THRESHOLD = 2.0;
@@ -1014,24 +974,7 @@ export default function App() {
 
                 </p>
               </div>
-              {activeTab !== 'ai' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  {syncStatus && (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--primary)', opacity: 0.8, animation: 'pulse 2s infinite' }}>
-                      {syncStatus}
-                    </span>
-                  )}
-                  <button 
-                    onClick={handleRefresh} 
-                    className="primary-button" 
-                    disabled={loading}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: loading ? 0.7 : 1 }}
-                  >
-                    <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-                    {loading ? 'Syncing...' : 'Refresh Data'}
-                  </button>
-                </div>
-              )}
+              {/* Removed manual Refresh component since data is synced automatically at midnight */}
             </header>
 
             {renderContent()}

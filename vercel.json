@@ -1,15 +1,6 @@
 {
   "version": 2,
-  "functions": {
-    "api/**/*.py": {
-      "maxDuration": 60
-    }
-  },
   "rewrites": [
-    {
-      "source": "/api/sync",
-      "destination": "/api/index.py"
-    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
