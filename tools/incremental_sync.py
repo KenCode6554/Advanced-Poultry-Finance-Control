@@ -37,7 +37,7 @@ load_dotenv()
 # ──────────────────────────────────────────────────────────────────────────────
 
 def get_sync_ceiling() -> date:
-    """Return the current day (allow same-day sync)."""
+    """Return today (n) to ensure same-day inputs are synced."""
     return datetime.now().date()
 
 
@@ -172,26 +172,56 @@ def run_incremental_sync(name_filter: str = None):
     print("[SYNC] Loaded latest-date map for %d kandangs\n" % len(latest_map))
     sys.stdout.flush()
 
+    farm_files = []
+    binary_files = []
+
     # Collect all files from Drive
     bbk_ids = os.getenv("GOOGLE_DRIVE_BBK_IDS", "").split(",")
     jtp_ids = os.getenv("GOOGLE_DRIVE_JTP_IDS", "").split(",")
 
-    farm_files = []
     for fid in [f for f in bbk_ids if f]:
-        for fi in drive_tool.list_xlsx_files(fid):
-            farm_files.append((fi, "Kandang BBK"))
+        # Live Sheets
+        for fi in drive_tool.list_google_sheets(fid):
+            farm_files.append((fi, "Kandang BBK", "LIVE_SHEET"))
+        # Binary detected
+        for fi in drive_tool.list_binary_xlsx_files(fid):
+            binary_files.append((fi, "Kandang BBK"))
+
     for fid in [f for f in jtp_ids if f]:
-        for fi in drive_tool.list_xlsx_files(fid):
-            farm_files.append((fi, "Kandang JTP"))
+        # Live Sheets
+        for fi in drive_tool.list_google_sheets(fid):
+            farm_files.append((fi, "Kandang JTP", "LIVE_SHEET"))
+        # Binary detected
+        for fi in drive_tool.list_binary_xlsx_files(fid):
+            binary_files.append((fi, "Kandang JTP"))
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Pre-flight Check: Binary File Warning
+    # ──────────────────────────────────────────────────────────────────────────
+    if binary_files:
+        print("\n" + "!" * 80)
+        print("!!! [ACTION REQUIRED] BINARY .XLSX FILES DETECTED !!!")
+        print("!!! The following files will NOT be synced until converted to Google Sheets:")
+        for (fi, farm) in binary_files:
+            print(f"!!!   - {farm} > {fi['name']} (ID: {fi['id']})")
+        print("!!!")
+        print("!!! TO FIX: Open the file in Google Drive and go to: File > Save as Google Sheets")
+        print("!" * 80 + "\n")
+        sys.stdout.flush()
 
     total_new = 0
     files_processed = 0
 
-    for (file_info, farm_name) in farm_files:
+    for (file_info, farm_name, sync_mode) in farm_files:
         fname = file_info['name']
         fid = file_info['id']
 
         if name_filter and name_filter.upper() not in fname.upper():
+            continue
+
+        # Explicitly exclude the requested farm so it doesn't calculate or show up in the DB
+        if "PL241T" in fname and "KD 4" in fname:
+            print(f"   [SKIP] Excluded farm from sync: {fname}")
             continue
 
         print("[FILE] %s > %s" % (farm_name, fname))
@@ -199,7 +229,7 @@ def run_incremental_sync(name_filter: str = None):
         # Resolve kandang_id
         try:
             pop, date_str, strain = drive_tool.get_computed_population(fid, fname)
-            kandang_id = db_sync.get_kandang_id(farm_name, fname.replace('.xlsx', '').strip(), strain)
+            kandang_id = db_sync.get_kandang_id(farm_name, fname.replace('.xlsx', '').strip(), strain, google_file_id=fid)
         except Exception as e:
             print("   [WARN] Could not resolve kandang: %s" % e)
             continue
@@ -225,6 +255,8 @@ def run_incremental_sync(name_filter: str = None):
         all_records = extracted.get('weekly', [])
 
         # Filter: only rows strictly AFTER the last known date AND <= ceiling (yesterday)
+        # Also skip rows where hd_actual is null/zero — these are future formula placeholders
+        # that Data_Out pre-fills for all 90 weeks before actuals are recorded.
         new_records = []
         for rec in all_records:
             rec_date_str = rec.get('week_end_date') or rec.get('date')
@@ -240,6 +272,16 @@ def run_incremental_sync(name_filter: str = None):
             if last_date and rec_date <= last_date:
                 continue  # already stored -- skip
 
+            # Skip placeholder rows: no actual HD% means the week hasn't been recorded yet
+            hd_actual = rec.get('hd_actual')
+            if hd_actual is None or hd_actual == '' or str(hd_actual).strip() in ('', 'nan', '#N/A', 'LOADING...'):
+                continue
+            try:
+                if float(hd_actual) == 0.0:
+                    continue
+            except (TypeError, ValueError):
+                continue
+
             new_records.append(rec)
 
         # --- Always update population (runs even if no new weekly rows) ---
@@ -248,7 +290,7 @@ def run_incremental_sync(name_filter: str = None):
             # Fetch current DB value so we can log the delta
             cur_res = supabase.table('kandang').select('populasi').eq('id', kandang_id).limit(1).execute()
             cur_pop = cur_res.data[0].get('populasi') if cur_res.data else None
-            db_sync.update_kandang_population(kandang_id, pop)
+            db_sync.update_kandang_population(kandang_id, pop, last_updated_date=date_str)
             if cur_pop != pop:
                 print("   [POP] Updated populasi: %s -> %s (as of %s)" % (cur_pop, pop, ceiling))
             else:

@@ -16,7 +16,7 @@ class DbSync:
         else:
             print("WARNING: Supabase URL or Key missing in .env")
 
-    def get_kandang_id(self, farm_name, kandang_name, strain=None):
+    def get_kandang_id(self, farm_name, kandang_name, strain=None, google_file_id=None):
         """Find or create Kandang ID based on names, with robust matching."""
         # Standardize name with strain if provided
         display_name = f"{kandang_name} ({strain})" if strain else kandang_name
@@ -31,7 +31,7 @@ class DbSync:
         # print(f"      [DB] Farm ID: {farm_id}")
         
         # 2. Get all Kandangs for this farm to find a match
-        kandang_res = self.client.table('kandang').select('id, name').eq('farm_id', farm_id).execute()
+        kandang_res = self.client.table('kandang').select('id, name, google_file_id').eq('farm_id', farm_id).execute()
         
         def normalize(s):
             import re
@@ -63,24 +63,36 @@ class DbSync:
             # print(f"      [DB] Checking '{k['name']}' -> Norm: '{k_norm}'")
             if k_norm == target_norm:
                 # Update name if it's currently generic and we have a more specific name
+                updates = {}
                 if strain and '(' not in k['name']:
-                    print(f"      [DB] Updating name: {k['name']} -> {display_name}")
-                    self.client.table('kandang').update({'name': display_name}).eq('id', k['id']).execute()
+                    updates['name'] = display_name
+                if google_file_id and k.get('google_file_id') != google_file_id:
+                    updates['google_file_id'] = google_file_id
+                
+                if updates:
+                    print(f"      [DB] Updating kandang {k['name']}: {updates}")
+                    self.client.table('kandang').update(updates).eq('id', k['id']).execute()
                 return k['id']
         
         # 3. No match found, create new
         print(f"      [DB] No match found for '{kandang_name}' (Norm: {target_norm}). Creating new record: {display_name}")
         new_res = self.client.table('kandang').insert({
             'farm_id': farm_id,
-            'name': display_name
+            'name': display_name,
+            'google_file_id': google_file_id
         }).execute()
         
         return new_res.data[0]['id']
 
-    def update_kandang_population(self, kandang_id, populasi):
+    def update_kandang_population(self, kandang_id, populasi, last_updated_date=None):
         """Update the population (Hidup) of a Kandang."""
         if populasi is None: return
-        self.client.table('kandang').update({'populasi': int(populasi)}).eq('id', kandang_id).execute()
+        
+        payload = {'populasi': int(populasi)}
+        if last_updated_date:
+            payload['populasi_last_updated'] = last_updated_date
+            
+        self.client.table('kandang').update(payload).eq('id', kandang_id).execute()
 
     def sync_weekly_production(self, kandang_id, weekly_data_list):
         """Bulk upsert weekly production records with safety clamping."""

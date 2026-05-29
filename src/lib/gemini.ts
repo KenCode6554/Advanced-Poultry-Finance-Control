@@ -8,8 +8,6 @@ if (!API_KEY) {
 export const getGeminiResponse = async (prompt: string, files?: { url: string, mimeType: string }[]) => {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`;
 
-
-
   const systemPrompt = `You are a helpful Poultry Farm Finance & Production AI assistant.
 IMPORTANT: When outputting math equations or formulas, you MUST enclose them in $$...$$ for block math or $...$ for inline math.
 CRITICAL: If you use the percentage symbol '%' inside any math block ($ or $$), you MUST always escape it as '\\%'. DO NOT use an unescaped '%' inside LaTeX or KaTeX blocks, as it will cause a parsing error.`;

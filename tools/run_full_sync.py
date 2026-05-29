@@ -37,6 +37,10 @@ def run_orchestration():
         if name_filter and name_filter.upper() not in kandang_name.upper() and name_filter.upper() not in farm_name.upper():
             continue
 
+        if "Mojogedang" in kandang_name or "PL244P" in kandang_name or "PL241T" in kandang_name:
+            print(f"  [SKIP] Skipping excluded kandang: {kandang_name}")
+            continue
+
         print(f"  Syncing {farm_name} > {kandang_name} ({len(weekly_records)} records)...")
         try:
             kandang_id = db_sync.get_kandang_id(farm_name, kandang_name)

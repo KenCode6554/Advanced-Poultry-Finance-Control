@@ -21,6 +21,9 @@ class GoogleDriveTool:
         self.drive_service = None
         self.sheets_service = None
         
+        self.MIME_SHEETS = 'application/vnd.google-apps.spreadsheet'
+        self.MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        
         # Priority 1: GOOGLE_APPLICATION_CREDENTIALS (file path)
         if self.creds_path and os.path.exists(self.creds_path):
             print(f"   [DRIVE] Loading service account from file: {self.creds_path}")
@@ -61,37 +64,56 @@ class GoogleDriveTool:
         results = self.drive_service.files().list(q=query, fields="files(id, name)").execute()
         return results.get('files', [])
 
-    def list_xlsx_files(self, folder_id):
-        """Finds XLSX files directly inside the given folder_id."""
-        print(f"Searching for files belonging to folder {folder_id}...")
-        query = f"'{folder_id}' in parents and mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' and trashed = false"
-        
+    def list_google_sheets(self, folder_id):
+        """Finds native Google Sheets files directly inside the given folder_id."""
+        print(f"Searching for Google Sheets in folder {folder_id}...")
+        query = f"'{folder_id}' in parents and mimeType = '{self.MIME_SHEETS}' and trashed = false"
+        return self._list_files(query, folder_id)
+
+    def list_binary_xlsx_files(self, folder_id):
+        """Finds binary .xlsx files that likely need to be converted to Google Sheets."""
+        query = f"'{folder_id}' in parents and mimeType = '{self.MIME_XLSX}' and trashed = false"
+        return self._list_files(query, folder_id)
+
+    def _list_files(self, query, folder_id):
         results = []
         page_token = None
         while True:
             response = self.drive_service.files().list(
                 q=query, 
-                fields="nextPageToken, files(id, name, parents)",
+                fields="nextPageToken, files(id, name, parents, mimeType, modifiedTime)",
                 pageToken=page_token
             ).execute()
             
             items = response.get('files', [])
             for f in items:
-                # Basic check for poultry keywords
                 name = f['name'].upper()
                 if any(x in name for x in ["BBK", "JTP", "KD", "REC"]):
-                    print(f"  - Found: {f['name']}")
                     results.append(f)
             
             page_token = response.get('nextPageToken')
             if not page_token:
                 break
-        
-        print(f"Found {len(results)} files for folder {folder_id}")
         return results
 
+    def list_xlsx_files(self, folder_id):
+        """DEPRECATED: Use list_google_sheets instead for live sync."""
+        return self.list_binary_xlsx_files(folder_id)
+
     def download_file(self, file_id):
-        request = self.drive_service.files().get_media(fileId=file_id)
+        # Determine if it's a native Google Sheet to use Export instead of GetMedia
+        file_metadata = self.drive_service.files().get(fileId=file_id, fields='mimeType').execute()
+        mime_type = file_metadata.get('mimeType')
+        
+        if mime_type == self.MIME_SHEETS:
+            print(f"      [DRIVE] Exporting Google Sheet to .xlsx for processing...")
+            request = self.drive_service.files().export_media(
+                fileId=file_id,
+                mimeType=self.MIME_XLSX
+            )
+        else:
+            request = self.drive_service.files().get_media(fileId=file_id)
+            
         fh = io.BytesIO()
         downloader = MediaIoBaseDownload(fh, request)
         done = False
@@ -381,24 +403,16 @@ class GoogleDriveTool:
         kandang_name = kandang_name.replace('.xlsx', '').strip()
         data = {'farm': farm_name, 'kandang': kandang_name, 'weekly': [], 'daily': [], 'populasi': 0}
         try:
-            df = pd.read_excel(file_content, sheet_name='Data_Out', header=None)
-            idx = self._find_column_indices(df, kandang_name)
+            df = None
+            if file_id and self.sheets_service:
+                print(f"  [Sheets API] Fetching Data_Out live for {kandang_name}...")
+                df = self._read_dataout_via_sheets_api(file_id)
             
-            # Detect 'Loading...' placeholder values in the HD column for non-future rows
-            # If found, replace the stale xlsx DataFrame with live values from the Sheets API
-            if file_id and self.sheets_service and 'hd_act' in idx:
-                hd_col = idx['hd_act']
-                loading_found = any(
-                    'LOADING' in str(df.iloc[i, hd_col]).upper()
-                    for i in range(7, min(len(df), 200))
-                )
-                if loading_found:
-                    print(f"  [Sheets API fallback] Detected 'Loading...' in Data_Out for {kandang_name} — fetching live values...")
-                    live_df = self._read_dataout_via_sheets_api(file_id)
-                    if live_df is not None:
-                        df = live_df
-                        idx = self._find_column_indices(df, kandang_name)
-                        print(f"  [Sheets API fallback] Successfully replaced DataFrame ({len(df)} rows)")
+            if df is None:
+                print(f"  [Sheets API] Live fetch failed or unavailable. Falling back to .xlsx stream for {kandang_name}...")
+                df = pd.read_excel(file_content, sheet_name='Data_Out', header=None)
+
+            idx = self._find_column_indices(df, kandang_name)
             
             def get_val(row, key, default=None):
                 if key in idx:
@@ -427,6 +441,12 @@ class GoogleDriveTool:
                     if (pd.isna(date_val) or date_val is None) and 'date' not in idx:
                         date_val = row[2] if len(row) > 2 else None
                     
+                    # Stop if we hit a secondary header (e.g. "Tanggal" or "Akhir Mg" repeating)
+                    row_text = ' '.join([str(x).upper() for x in row.values if pd.notna(x)])
+                    if i > 15 and ('TANGGAL' in row_text or 'AKHIR MG' in row_text or 'UMUR (MG)' in row_text):
+                        print(f"      [DRIVE] Extraction break at row {i}: Secondary header detected.")
+                        break
+
                     if not isinstance(date_val, (datetime, date)) and (pd.isna(date_val) or date_val == 0): continue
                     try:
                         dt_obj = pd.to_datetime(date_val)
@@ -623,69 +643,130 @@ class GoogleDriveTool:
             return None
 
     def get_computed_population(self, file_id, file_name):
+        # Strain/farm metadata lookup — used for kandang registration only
         ANCHORS = {
-            "KD 4": (3342, "2026-02-18", "JTP", "PL244P"), "KD 5": (5451, "2026-03-19", "JTP", "PL244P"),
-            "KD 7": (4175, "2026-03-19", "JTP", "PL244P"), "JANTAN": (1628, "2026-03-19", "JTP", "PL244P"),
-            "1A": (1363, "2026-03-16", "BBK", "AL101"), "KD 2": (1362, "2026-03-16", "BBK", "AL101"),
-            "3A+3B": (1466, "2026-03-16", "BBK", "AL1001"), "6A": (1487, "2026-03-16", "BBK", "AL101"),
-            "6B": (1482, "2026-03-16", "BBK", "AL101"), "7A": (1241, "2026-03-16", "BBK", "AL101"),
-            "7B": (1293, "2026-03-10", "BBK", "AL101"), "9A": (1481, "2026-03-16", "BBK", "AL101"),
-            "9B": (1405, "2026-03-16", "BBK", "AL101"), "11": (1914, "2026-03-16", "BBK", "AL101"),
-            "12": (1897, "2026-03-16", "BBK", "AL101"), "14": (1498, "2026-03-13", "BBK", "AL101"),
-            "15": (1958, "2026-03-16", "BBK", "AL101"), "16": (2298, "2026-03-16", "BBK", "AL122"),
-            "17": (2760, "2026-02-22", "BBK", "AL122")
+            "KD 4": ("JTP", "PL244T"), "KD 5": ("JTP", "PL244P"),
+            "KD 7": ("JTP", "PL244P"), "Jantan": ("JTP", "PL244P"),
+            "1A": ("BBK", "AL101"), "KD 2": ("BBK", "AL101"),
+            "3A+3B": ("BBK", "AL1001"), "6A": ("BBK", "AL101"),
+            "6B": ("BBK", "AL101"), "7A": ("BBK", "AL101"),
+            "7B": ("BBK", "AL101"), "9A": ("BBK", "AL101"),
+            "9B": ("BBK", "AL101"), "11": ("BBK", "AL101"),
+            "12": ("BBK", "AL101"), "14": ("BBK", "AL101"),
+            "15": ("BBK", "AL101"), "16": ("BBK", "AL122"),
+            "17": ("BBK", "AL122")
         }
         f_norm = file_name.upper().replace(".XLSX", "")
         anchor_key = None
         for k in sorted(ANCHORS.keys(), key=len, reverse=True):
-            if re.search(rf'(\bKD\s*|(?<!\w)){re.escape(k.replace("KD ","").strip())}(\b|(?!\w))', f_norm):
+            k_upper = k.upper()
+            search_term = re.escape(k_upper.replace("KD ", "").strip())
+            if re.search(rf'(\bKD\s*|(?<!\w)){search_term}(\b|(?!\w))', f_norm):
                 anchor_key = k; break
-        if not anchor_key: return 0, None
-        
-        base_pop, base_date_str, farm_type, strain = ANCHORS[anchor_key]
-        base_date = datetime.strptime(base_date_str, "%Y-%m-%d").date()
+        if not anchor_key: return 0, None, None
+
+        farm_type, strain = ANCHORS[anchor_key]
+        ceiling_date = datetime.now().date() - timedelta(days=1)  # n-1
+
         try:
-            content = self.download_file(file_id)
-            wb = openpyxl.load_workbook(io.BytesIO(content.getvalue()), data_only=False)
-            sheet = next((wb[n] for n in wb.sheetnames if any(x in n.upper() for x in ["DATA", "HARIAN"])), wb.active)
-            formula = next((sheet.cell(r, c).value for r in range(1, 100) for c in range(1, 15) if isinstance(sheet.cell(r, c).value, str) and "IMPORTRANGE" in sheet.cell(r, c).value.upper()), None)
-            if not formula: return base_pop, base_date_str, strain
-            sid = re.search(r'd/([a-zA-Z0-9-_]+)', formula).group(1)
-            sn = re.search(r',["\']([^!]+)!', formula).group(1).replace("'", "").replace('"', '').strip()
-            rows = self.sheets_service.spreadsheets().values().get(spreadsheetId=sid, range=f"'{sn}'!A1:Z5000").execute().get('values', [])
-            if not rows: return base_pop, base_date_str, strain
-            
-            t_col, m_col, a_col = 0, 2, 3
-            for r in rows[:50]:
-                low = [str(x).upper() for x in r]
-                if 'TANGGAL' in low or 'TGL' in low:
-                    t_col = low.index(next(x for x in low if x in ['TANGGAL', 'TGL']))
-                    for i, v in enumerate(low):
-                        if any(x in v for x in ['MATI', 'DEPLESI']): m_col = i
-                        if any(x in v for x in ['AFKIR', 'JUAL']): a_col = i
+            rows = None
+            sheet_name_used = None
+
+            # ── Strictly use Sheets API (Live Data) ──
+            HARIAN_NAMES = ['Data Harian', 'data harian', 'DATA HARIAN']
+            for sname in HARIAN_NAMES:
+                try:
+                    result = self.sheets_service.spreadsheets().values().get(
+                        spreadsheetId=file_id,
+                        range=f"'{sname}'!A1:Z1500"
+                    ).execute()
+                    candidate = result.get('values', [])
+                    if candidate:
+                        rows = candidate
+                        sheet_name_used = sname
+                        print(f"   [POP] Live Sync via Sheets API: '{sname}'")
+                        break
+                except Exception:
+                    continue
+
+            if not rows:
+                print(f"   [POP] ERROR: Live Sync failed for {file_name}. Ensure it is a Google Sheet and shared correctly.")
+                return 0, None, strain
+
+            # ── Step 1: Find TANGGAL and HIDUP column indices in header rows ──
+            col_tgl = None
+            col_hidup = None
+            header_row_idx = 9
+
+            for r_idx, row in enumerate(rows[:15]):
+                upper = [str(v or '').upper().strip() for v in row]
+                # Look for Date column keywords
+                if any(x in upper for x in ('TANGGAL', 'TGL', 'TGL.', 'DATE')):
+                    header_row_idx = r_idx
+                    for c_idx, v in enumerate(upper):
+                        if v in ('TANGGAL', 'TGL', 'TGL.', 'DATE') and col_tgl is None:
+                            col_tgl = c_idx
+                    
+                    # Search ±2 rows for Population keywords
+                    pop_keywords = ('HIDUP', 'POPULASI', 'POP.', 'STOK', 'SISA')
+                    for sr in range(max(0, r_idx - 2), min(len(rows), r_idx + 3)):
+                        row_content = [str(x or '').upper().strip() for x in rows[sr]]
+                        for c_idx, v in enumerate(row_content):
+                            if any(k in v for k in pop_keywords) and col_hidup is None:
+                                col_hidup = c_idx
                     break
-            
-            curr_pop, curr_date = base_pop, base_date
-            for r in rows:
-                if len(r) > max(t_col, m_col):
-                    d_str = str(r[t_col]).strip()
-                    row_dt = None
-                    for fmt in ["%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d"]:
-                        try: row_dt = datetime.strptime(d_str, fmt).date(); break
-                        except: continue
-                    if row_dt and row_dt > base_date and row_dt <= (datetime.now().date() - timedelta(days=1)):
+
+            if col_tgl is None or col_hidup is None:
+                print(f"   [POP] Could not find TANGGAL/HIDUP columns in {file_name}")
+                return 0, None, strain
+
+            # ── Step 2: Find the latest Hidup value on or before n-1 date ──
+            best_pop = None
+            best_date = None
+
+            for row in rows[header_row_idx + 1:]:
+                if len(row) <= max(col_tgl, col_hidup):
+                    continue
+                d_val = row[col_tgl]
+                row_dt = None
+
+                if isinstance(d_val, datetime):
+                    row_dt = d_val.date()
+                elif d_val:
+                    d_str = str(d_val).strip()
+                    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d %H:%M:%S"]:
+                        try: 
+                            row_dt = datetime.strptime(d_str.split()[0], fmt).date()
+                            break
+                        except: 
+                            continue
+
+                if row_dt and row_dt <= ceiling_date:
+                    h_val = row[col_hidup]
+                    if h_val is not None and str(h_val).strip():
                         try:
-                            m = int(float(str(r[m_col]).replace(",","").strip() or 0))
-                            a = int(float(str(r[a_col]).replace(",","").strip() or 0)) if len(r) > a_col else 0
-                            if anchor_key in ["14", "3A+3B"]: a = 0
-                            curr_pop -= (m + a)
-                            if row_dt > curr_date: curr_date = row_dt
+                            pop_int = int(float(str(h_val).replace(",", "").strip()))
+                            if pop_int > 0:
+                                best_pop = pop_int
+                                best_date = row_dt
                         except: continue
-            return max(0, curr_pop), curr_date.strftime("%Y-%m-%d"), strain
+
+            if best_pop is not None:
+                # Staleness Check
+                days_diff = (datetime.now().date() - best_date).days
+                if days_diff > 3:
+                    print(f"   [POP] WARNING: Data is STALE ({days_diff} days old). Hidup on {best_date}: {best_pop}")
+                else:
+                    print(f"   [POP] Hidup on {best_date}: {best_pop} (Freshness: {days_diff} days)")
+                
+                return best_pop, best_date.strftime("%Y-%m-%d"), strain
+            else:
+                print(f"   [POP] No Hidup data found up to {ceiling_date}")
+                return 0, None, strain
+
         except Exception as e:
-            print(f"Error patching {file_name}: {e}")
-            # Ensure we return the strain even on error if we found the anchor
-            return base_pop, base_date_str, strain if 'strain' in locals() else None
+            print(f"   [POP] Error reading {file_name}: {e}")
+            return 0, None, strain
 
     def run_sync(self, root_folder_id, filter_name=None):
         farms = self.get_farm_folders(root_folder_id)

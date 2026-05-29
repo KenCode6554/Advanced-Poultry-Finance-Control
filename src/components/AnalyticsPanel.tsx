@@ -20,7 +20,8 @@ import {
   Skull,
   BarChart3,
   RefreshCw,
-  ChevronDown
+  ChevronDown,
+  ExternalLink
 } from 'lucide-react';
 
 interface AnalyticsPanelProps {
@@ -34,6 +35,7 @@ export function AnalyticsPanel({ farms, initialFarmId, initialKandangId }: Analy
   const [selectedKandangId, setSelectedKandangId] = useState<string | null>(initialKandangId ?? null);
   const [analyticsData, setAnalyticsData] = useState<any[]>([]);
   const [fetching, setFetching] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
 
   // Sync when deep-linked from Gap Warnings tab
   useEffect(() => {
@@ -43,14 +45,32 @@ export function AnalyticsPanel({ farms, initialFarmId, initialKandangId }: Analy
 
   const selectedFarm = farms.find(f => f.id === selectedFarmId);
   const availableKandangs = selectedFarm?.kandang || [];
+  const selectedKandang = availableKandangs.find((k: any) => k.id === selectedKandangId);
 
   useEffect(() => {
+    fetchLastSync();
     if (selectedKandangId) {
       fetchAnalyticsData(selectedKandangId);
     } else {
       setAnalyticsData([]);
     }
   }, [selectedKandangId]);
+
+  async function fetchLastSync() {
+    try {
+      const { data, error } = await supabase
+        .from('weekly_production')
+        .select('created_at')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      
+      if (data && data.length > 0) {
+        setLastSync(new Date(data[0].created_at).toLocaleString());
+      }
+    } catch (err) {
+      console.error('Error fetching last sync:', err);
+    }
+  }
 
   async function fetchAnalyticsData(kandangId: string) {
     setFetching(true);
@@ -59,6 +79,7 @@ export function AnalyticsPanel({ farms, initialFarmId, initialKandangId }: Analy
         .from('weekly_production')
         .select('*')
         .eq('kandang_id', kandangId)
+        .not('hd_actual', 'is', null)   // exclude future placeholder rows (no actual data yet)
         .order('usia_minggu', { ascending: true });
       
       if (error) throw error;
@@ -91,12 +112,20 @@ export function AnalyticsPanel({ farms, initialFarmId, initialKandangId }: Analy
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Selectors Bar */}
       <div className="glass" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 2rem', borderRadius: '1.5rem', border: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <BarChart3 size={24} color="var(--primary)" />
-          <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Production Intel</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <BarChart3 size={24} color="var(--primary)" />
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Production Intel</h3>
+          </div>
+          {lastSync && (
+            <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--muted-foreground)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <RefreshCw size={10} className={fetching ? 'animate-spin' : ''} />
+              Last sync: {lastSync}
+            </p>
+          )}
         </div>
         
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
             <select 
               style={{ padding: '0.625rem 2.5rem 0.625rem 1.25rem', borderRadius: '12px', border: '1px solid var(--border)', backgroundColor: 'var(--card)', color: 'white', appearance: 'none', cursor: 'pointer', fontSize: '0.875rem', minWidth: '180px' }}
@@ -124,6 +153,35 @@ export function AnalyticsPanel({ farms, initialFarmId, initialKandangId }: Analy
             </select>
             <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5 }} />
           </div>
+
+          {/* Google Sheets shortcut — shown only when a kandang with a file ID is selected */}
+          {selectedKandang?.google_file_id && (
+            <a
+              href={`https://docs.google.com/spreadsheets/d/${selectedKandang.google_file_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.625rem 1.25rem',
+                borderRadius: '12px',
+                border: '1px solid var(--primary)',
+                backgroundColor: 'rgba(191, 245, 73, 0.08)',
+                color: 'var(--primary)',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+                transition: 'background-color 0.2s ease'
+              }}
+              onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(191, 245, 73, 0.18)')}
+              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(191, 245, 73, 0.08)')}
+            >
+              <ExternalLink size={15} />
+              Open in Sheets
+            </a>
+          )}
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from './lib/supabase';
 import { ChatPanel } from './components/ChatPanel';
 import { AnalyticsPanel } from './components/AnalyticsPanel';
+import { ComparisonPanel } from './components/ComparisonPanel';
 import { Login } from './components/Login';
 
 import {
@@ -16,7 +17,8 @@ import {
   TrendingDown,
   LogOut,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Columns2
 } from 'lucide-react';
 
 import {
@@ -32,6 +34,8 @@ import {
 
 interface Stats {
   totalPopulation: number;
+  bbkPopulation: number;
+  jtpPopulation: number;
   avgHD: number;
   hdTrend: number;
   criticalGaps: number;
@@ -61,17 +65,19 @@ interface ComputedGap {
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'farms' | 'gaps' | 'analytics' | 'ai'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'farms' | 'gaps' | 'analytics' | 'comparison' | 'ai'>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [stats, setStats] = useState<Stats>({
     totalPopulation: 0,
+    bbkPopulation: 0,
+    jtpPopulation: 0,
     avgHD: 0,
     hdTrend: 0,
     criticalGaps: 0,
     activeFarms: 0
   });
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [chartData, setChartData] = useState<any[]>([]);
   const [chartDataEgg, setChartDataEgg] = useState<any[]>([]);
   const [chartDataFCR, setChartDataFCR] = useState<any[]>([]);
@@ -361,9 +367,22 @@ export default function App() {
           return totalPop > 0 ? weightedSum / totalPop : 0;
         }
 
-        const latestWeekNum = production.reduce((max, r) => Math.max(max, r.usia_minggu ?? 0), 0);
-        const latestRows = production.filter(r => r.usia_minggu === latestWeekNum);
-        const prevRows   = production.filter(r => r.usia_minggu === latestWeekNum - 1);
+        // Extract the absolute latest and previous row for EACH active kandang
+        const kandangLatest = new Map();
+        const kandangPrev = new Map();
+        
+        // Filter out future/empty rows so we only look at actual production data
+        const validProd = production.filter(r => r.hd_actual != null);
+
+        // Sort chronologically to safely grab the last two ACTIVE records per kandang
+        const sortedProd = [...validProd].sort((a, b) => new Date(a.week_end_date).getTime() - new Date(b.week_end_date).getTime());
+        sortedProd.forEach(r => {
+          kandangPrev.set(r.kandang_id, kandangLatest.get(r.kandang_id));
+          kandangLatest.set(r.kandang_id, r);
+        });
+
+        const latestRows = Array.from(kandangLatest.values()).filter(Boolean);
+        const prevRows = Array.from(kandangPrev.values()).filter(Boolean);
 
         const latestAvgHd = weightedHD(latestRows);
         const prevAvgHd   = weightedHD(prevRows);
@@ -373,14 +392,18 @@ export default function App() {
         const computedGaps = generateGapsFromProduction(production);
         const criticalCount = computedGaps.filter(g => g.health_signal === 'BAD' || g.health_signal === 'WATCH').length;
 
-        // Calculate Total Population (Sum of all kandang populasi)
-        const totalPopulation = farmData?.reduce((acc, farm) => {
+        // Calculate Populations
+        const populations = { bbk: 0, jtp: 0 };
+        farmData?.forEach(farm => {
           const farmPop = farm.kandang?.reduce((sum: number, k: any) => sum + (k.populasi || 0), 0) || 0;
-          return acc + farmPop;
-        }, 0) || 0;
+          if (farm.name.includes('BBK')) populations.bbk += farmPop;
+          else if (farm.name.includes('JTP')) populations.jtp += farmPop;
+        });
 
         setStats({
-          totalPopulation: totalPopulation,
+          totalPopulation: populations.bbk + populations.jtp,
+          bbkPopulation: populations.bbk,
+          jtpPopulation: populations.jtp,
           avgHD: Number(latestAvgHd.toFixed(2)),
           hdTrend: hdTrend,
           criticalGaps: criticalCount,
@@ -584,7 +607,32 @@ export default function App() {
       case 'farms':
         return (
           <div className="animate-fade-in">
-            <h3 style={{ marginBottom: '1.5rem' }}>Farm Infrastructure</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '2rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.75rem' }}>Farm Infrastructure</h3>
+              
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                {/* BBK Population */}
+                <div style={{ padding: '0.5rem 1rem', backgroundColor: 'rgba(191, 245, 73, 0.05)', border: '1px solid var(--primary)', color: 'var(--primary)', borderRadius: '10px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', fontWeight: 700, opacity: 0.7 }}>BBK Population</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: 800 }}>{stats.bbkPopulation.toLocaleString()}</span>
+                </div>
+                
+                {/* JTP Population */}
+                <div style={{ padding: '0.5rem 1rem', backgroundColor: 'rgba(59, 130, 246, 0.05)', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: '10px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', fontWeight: 700, opacity: 0.7 }}>JTP Population</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: 800 }}>{stats.jtpPopulation.toLocaleString()}</span>
+                </div>
+
+                {/* Total Population */}
+                <div style={{ padding: '0.75rem 1.5rem', backgroundColor: 'rgba(191, 245, 73, 0.1)', border: '2px solid var(--primary)', color: 'var(--primary)', borderRadius: '12px', fontWeight: 800, fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', boxShadow: '0 4px 20px rgba(191, 245, 73, 0.15)' }}>
+                  <Layers size={28} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', alignItems: 'flex-start' }}>
+                    <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.8, lineHeight: 1, fontWeight: 700 }}>Total Live Birds</span>
+                    <span style={{ lineHeight: 1, letterSpacing: '-0.02em' }}>{stats.totalPopulation.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(500px, 1fr))', gap: '1.5rem' }}>
               {farms.map((farm) => (
                 <div key={farm.id} className="card" style={{ padding: '1.25rem', borderTop: '4px solid var(--primary)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -605,7 +653,17 @@ export default function App() {
                       <div key={k.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', backgroundColor: 'var(--muted)', borderRadius: '12px', border: '1px solid var(--border)' }}>
                         <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{k.name}</div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.875rem' }}>{k.populasi?.toLocaleString() || '0'}</div>
+                          <div style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.875rem' }}>{k.populasi?.toLocaleString() || '0'} birds</div>
+                          {k.populasi_last_updated && (
+                            <div style={{ fontSize: '0.65rem', opacity: 0.6, marginTop: '0.1rem' }}>as of {new Date(k.populasi_last_updated).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                          )}
+                          {k.google_file_id && (
+                            <div style={{ marginTop: '0.4rem' }}>
+                              <a href={`https://docs.google.com/spreadsheets/d/${k.google_file_id}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.7rem', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.2rem', justifyContent: 'flex-end', fontWeight: 600 }}>
+                                <Layers size={12} /> Open in Sheets
+                              </a>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )) : (
@@ -891,6 +949,8 @@ export default function App() {
 
       case 'analytics':
         return <AnalyticsPanel farms={farms} initialFarmId={analyticsFarmId} initialKandangId={analyticsKandangId} />;
+      case 'comparison':
+        return <ComparisonPanel farms={farms} gaps={gaps} />;
       case 'ai':
         return <ChatPanel />;
       default:
@@ -940,6 +1000,7 @@ export default function App() {
              <NavItem icon={<Activity size={20} />} label="Infrastructure" active={activeTab === 'farms'} onClick={() => setActiveTab('farms')} collapsed={!isSidebarOpen} />
              <NavItem icon={<AlertTriangle size={20} />} label="Diagnostics" active={activeTab === 'gaps'} onClick={() => setActiveTab('gaps')} collapsed={!isSidebarOpen} />
              <NavItem icon={<TrendingDown size={20} />} label="Deep Metrics" active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')} collapsed={!isSidebarOpen} />
+             <NavItem icon={<Columns2 size={20} />} label="Comparison" active={activeTab === 'comparison'} onClick={() => setActiveTab('comparison')} collapsed={!isSidebarOpen} />
              <NavItem icon={<MessageSquare size={20} />} label="AI Assistant" active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} collapsed={!isSidebarOpen} />
              
              <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
@@ -963,14 +1024,16 @@ export default function App() {
                   {activeTab === 'overview' ? 'Executive Dashboard' :
                     activeTab === 'farms' ? 'Farm Management' :
                       activeTab === 'gaps' ? 'Performance Alerts' :
-                        activeTab === 'ai' ? 'Intelligence Hub' : 'Production Analytics'}
+                        activeTab === 'comparison' ? 'Unit Comparison' :
+                          activeTab === 'ai' ? 'Intelligence Hub' : 'Production Analytics'}
 
                 </h2>
                 <p style={{ color: 'var(--muted-foreground)' }}>
                   {activeTab === 'overview' ? 'Real-time production intelligence and gap analysis.' :
                     activeTab === 'farms' ? 'Inventory and population per kandang unit.' :
                       activeTab === 'gaps' ? 'Critical deviations detected by AI engine.' :
-                        activeTab === 'ai' ? 'Advanced multi-modal model for farm insights.' : 'Statistical models and trend forecasting.'}
+                        activeTab === 'comparison' ? 'Side-by-side production analysis.' :
+                          activeTab === 'ai' ? 'Advanced multi-modal model for farm insights.' : 'Statistical models and trend forecasting.'}
 
                 </p>
               </div>

@@ -17,7 +17,7 @@ kandang (
   farm_id uuid REFERENCES farms(id),
   name text,
   populasi int,
-  chick_in_date date,
+  populasi_last_updated date,
   created_at timestamptz
 )
 
@@ -142,3 +142,7 @@ chat_messages (
 - **2026-03-13:** Full System "Save": Maintenance logs updated and temporary files cleaned.
 - **2026-03-18:** Gap Warning Revision implemented. Added multi-mode comparison logic and health signals.
 - **2026-03-22:** Gap Warning Logic Refined. Fixed off-by-one errors in Data_Out extraction. Implemented specific comparison modes for %HD, Egg Weight (kg/1000), Feed Intake, FCR, and % Deplesi.
+- **2026-04-12:** Robust Population Extraction implemented. Handled 'Populasi' header variation and non-numeric errors. Removed unused `chick_in_date` column from `kandang` table.
+- **2026-04-13:** Migrated to Sheets-Only Master architecture. System now enforces native Google Sheets for live sync. Binary .xlsx files are flagged with [ACTION REQUIRED] instructions to prevent stale data issues.
+- **2026-05-11:** Implemented Comparison Tab for side-by-side performance analysis.
+- **2026-05-11:** Optimized Data Sync Pipeline: Updated sync ceiling to 'Today', increased GitHub Action frequency to 6 hours, and added 'Last Sync' indicators to the UI. Triggered full re-sync for all 18 units.

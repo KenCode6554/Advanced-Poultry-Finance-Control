@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { getGeminiResponse } from '../lib/gemini';
-import { Send, Paperclip, X, User, Bot, Loader2, FileText, Image as ImageIcon, Plus, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Send, Paperclip, X, User, Bot, Loader2, FileText, Image as ImageIcon, Plus, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -23,6 +23,7 @@ export const ChatPanel: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [attachedFile, setAttachedFile] = useState<{ file: File, preview: string | null } | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -84,16 +85,47 @@ export const ChatPanel: React.FC = () => {
   };
 
   const createNewSession = async () => {
+    const { data: user } = await supabase.auth.getUser();
+    if (!user.user) return;
+
     const { data: newSession } = await supabase
       .from('chat_sessions')
-      .insert([{ user_id: (await supabase.auth.getUser()).data.user?.id }])
+      .insert([{ user_id: user.user.id }])
       .select()
       .single();
       
     if (newSession) {
-      setSessions(prev => [newSession, ...prev]);
+      setSessions(prev => [{ id: newSession.id, created_at: newSession.created_at, first_msg: 'New Chat' }, ...prev]);
       setSessionId(newSession.id);
       setMessages([]);
+    }
+  };
+
+  const deleteSession = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    
+    // 1. Delete from DB
+    const { error } = await supabase
+      .from('chat_sessions')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error("Error deleting session:", error);
+      return;
+    }
+
+    // 2. Update local state
+    const updatedSessions = sessions.filter(s => s.id !== id);
+    setSessions(updatedSessions);
+
+    // 3. Handle selection if current session was deleted
+    if (sessionId === id) {
+      if (updatedSessions.length > 0) {
+        loadSession(updatedSessions[0].id);
+      } else {
+        createNewSession();
+      }
     }
   };
 
@@ -218,12 +250,52 @@ export const ChatPanel: React.FC = () => {
             const timeAgo = diffHours < 24 ? `${diffHours}h` : `${Math.floor(diffHours/24)}d`;
             
             return (
-              <div key={s.id} onClick={() => loadSession(s.id)} style={{ padding: '0.75rem', borderRadius: '8px', cursor: 'pointer', backgroundColor: sessionId === s.id ? 'var(--muted)' : 'transparent', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem', color: sessionId === s.id ? 'white' : 'var(--muted-foreground)', transition: 'background-color 0.2s' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: sessionId === s.id ? 'var(--primary)' : 'var(--muted-foreground)', opacity: sessionId === s.id ? 1 : 0.2 }} />
+              <div 
+                key={s.id} 
+                onClick={() => loadSession(s.id)} 
+                onMouseEnter={() => setHoveredSessionId(s.id)}
+                onMouseLeave={() => setHoveredSessionId(null)}
+                style={{ 
+                  padding: '0.75rem', 
+                  borderRadius: '8px', 
+                  cursor: 'pointer', 
+                  backgroundColor: sessionId === s.id ? 'var(--muted)' : 'transparent', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.75rem', 
+                  fontSize: '0.875rem', 
+                  color: sessionId === s.id ? 'white' : 'var(--muted-foreground)', 
+                  transition: 'background-color 0.2s',
+                  position: 'relative'
+                }}
+              >
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: sessionId === s.id ? 'var(--primary)' : 'var(--muted-foreground)', opacity: sessionId === s.id ? 1 : 0.2, flexShrink: 0 }} />
                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, fontWeight: sessionId === s.id ? 500 : 400 }}>
                    {s.first_msg}
                 </span>
-                <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>{timeAgo}</span>
+                
+                <button
+                  onClick={(e) => deleteSession(e, s.id)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: '4px',
+                    borderRadius: '4px',
+                    color: hoveredSessionId === s.id ? 'var(--destructive)' : 'var(--muted-foreground)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: hoveredSessionId === s.id ? 1 : 0,
+                    transition: 'all 0.2s ease',
+                    marginLeft: 'auto',
+                    pointerEvents: hoveredSessionId === s.id ? 'auto' : 'none'
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+
+                <span style={{ fontSize: '0.7rem', opacity: 0.5, flexShrink: 0 }}>{timeAgo}</span>
               </div>
             );
           })}

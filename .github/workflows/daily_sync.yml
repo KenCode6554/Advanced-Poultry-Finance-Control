@@ -3,7 +3,7 @@ name: Daily Data Sync
 on:
   schedule:
     # 00:00 WIB is 17:00 UTC (previous day)
-    - cron: '0 17 * * *'
+    - cron: '0 0 * * *'
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
@@ -29,4 +29,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_DRIVE_BBK_IDS: ${{ secrets.GOOGLE_DRIVE_BBK_IDS }}
+          GOOGLE_DRIVE_JTP_IDS: ${{ secrets.GOOGLE_DRIVE_JTP_IDS }}
         run: python tools/incremental_sync.py
