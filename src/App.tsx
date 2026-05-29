@@ -950,7 +950,7 @@ export default function App() {
       case 'analytics':
         return <AnalyticsPanel farms={farms} initialFarmId={analyticsFarmId} initialKandangId={analyticsKandangId} />;
       case 'comparison':
-        return <ComparisonPanel farms={farms} gaps={gaps} />;
+        return <ComparisonPanel farms={farms} />;
       case 'ai':
         return <ChatPanel />;
       default:

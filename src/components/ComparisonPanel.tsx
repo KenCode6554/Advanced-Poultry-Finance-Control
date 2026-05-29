@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   XAxis,
@@ -23,10 +23,9 @@ import {
 
 interface ComparisonPanelProps {
   farms: any[];
-  gaps: any[];
 }
 
-export function ComparisonPanel({ farms, gaps }: ComparisonPanelProps) {
+export function ComparisonPanel({ farms }: ComparisonPanelProps) {
   // State for Unit A
   const [farmAId, setFarmAId] = useState<string | null>(null);
   const [kandangAId, setKandangAId] = useState<string | null>(null);
@@ -62,7 +61,7 @@ export function ComparisonPanel({ farms, gaps }: ComparisonPanelProps) {
 
   async function fetchLastSync() {
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('weekly_production')
         .select('created_at')
         .order('created_at', { ascending: false })

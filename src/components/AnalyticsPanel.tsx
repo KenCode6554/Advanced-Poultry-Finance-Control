@@ -58,7 +58,7 @@ export function AnalyticsPanel({ farms, initialFarmId, initialKandangId }: Analy
 
   async function fetchLastSync() {
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('weekly_production')
         .select('created_at')
         .order('created_at', { ascending: false })
