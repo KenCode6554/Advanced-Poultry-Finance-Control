@@ -250,7 +250,7 @@ def run_incremental_sync(name_filter: str = None):
 
         # Extract all weekly records
         extracted = drive_tool.extract_data_from_excel(
-            io.BytesIO(content.getvalue()), farm_name, fname, file_id=fid
+            io.BytesIO(content.getvalue()), farm_name, fname, file_id=fid, populasi=pop
         )
         all_records = extracted.get('weekly', [])
 
@@ -277,8 +277,33 @@ def run_incremental_sync(name_filter: str = None):
             if hd_actual is None or hd_actual == '' or str(hd_actual).strip() in ('', 'nan', '#N/A', 'LOADING...'):
                 continue
             try:
-                if float(hd_actual) == 0.0:
+                hd_float = float(hd_actual)
+                if hd_float == 0.0:
                     continue
+
+                # Context-aware low-HD guard:
+                # If this kandang had a prior week with HD > 50%, and the new value
+                # is below 15%, it's almost certainly a partial-week artifact (1-2 days
+                # of data producing an artificially low weekly average). Skip it.
+                # Kandangs starting up (no prior data) or legitimately old/declining
+                # flocks are not affected because their prior HD is also low.
+                if hd_float < 15.0 and last_date is not None:
+                    # Check the most recent stored HD for context
+                    prior = (
+                        supabase.table('weekly_production')
+                        .select('hd_actual')
+                        .eq('kandang_id', kandang_id)
+                        .order('week_end_date', desc=True)
+                        .limit(1)
+                        .execute()
+                        .data
+                    )
+                    prior_hd = float(prior[0]['hd_actual']) if prior and prior[0].get('hd_actual') else 0
+                    if prior_hd > 50.0:
+                        print("   [GUARD] Skipped wk%s HD=%.1f%% (prior=%.1f%%) — likely partial-week artifact" % (
+                            rec.get('usia_minggu', '?'), hd_float, prior_hd))
+                        continue
+
             except (TypeError, ValueError):
                 continue
 
@@ -297,18 +322,19 @@ def run_incremental_sync(name_filter: str = None):
                 print("   [POP] Populasi unchanged: %s" % pop)
             sys.stdout.flush()
 
-        if not new_records:
+        if new_records:
+            print("   [SYNC] %d new row(s) to upsert (up to %s)" % (len(new_records), ceiling))
+            upserted = upsert_new_records(supabase, kandang_id, new_records)
+            print("   [OK] Upserted %d / %d records\n" % (upserted, len(new_records)))
+            total_new += upserted
+        else:
             print("   [OK] No new weekly rows to sync (already up to date)\n")
-            files_processed += 1
-            continue
 
-        print("   [SYNC] %d new row(s) to upsert (up to %s)" % (len(new_records), ceiling))
-
-        # Upsert only the new rows
-        upserted = upsert_new_records(supabase, kandang_id, new_records)
-        print("   [OK] Upserted %d / %d records\n" % (upserted, len(new_records)))
-        total_new += upserted
         files_processed += 1
+
+        if 'daily' in extracted and extracted['daily']:
+            print("   [SYNC] Syncing %d daily records..." % len(extracted['daily']))
+            db_sync.sync_daily_production(kandang_id, extracted['daily'])
 
     print("=" * 60)
     print("[SYNC] Incremental Sync Done")

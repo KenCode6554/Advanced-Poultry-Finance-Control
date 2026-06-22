@@ -4,6 +4,8 @@ import { ChatPanel } from './components/ChatPanel';
 import { AnalyticsPanel } from './components/AnalyticsPanel';
 import { ComparisonPanel } from './components/ComparisonPanel';
 import { Login } from './components/Login';
+import { SopTracker } from './components/SopTracker';
+import { HDPerformanceTable } from './components/HDPerformanceTable';
 
 import {
   BarChart3,
@@ -18,7 +20,8 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
-  Columns2
+  Columns2,
+  ClipboardCheck
 } from 'lucide-react';
 
 import {
@@ -65,7 +68,7 @@ interface ComputedGap {
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'farms' | 'gaps' | 'analytics' | 'comparison' | 'ai'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'farms' | 'gaps' | 'analytics' | 'comparison' | 'ai' | 'sop'>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [stats, setStats] = useState<Stats>({
@@ -286,8 +289,8 @@ export default function App() {
       const s = byWeek[week][farmName];
       // HD%
       if (row.hd_actual != null && row.hd_actual !== 0)   { s.hd.sum += row.hd_actual; s.hd.count++; }
-      // Egg weight g/btr (stored as kg, convert *1000)
-      if (row.egg_weight_actual != null && row.egg_weight_actual !== 0) { s.egg.sum += row.egg_weight_actual * 1000; s.egg.count++; }
+      // Egg weight g/btr — stored directly as g/btr (e.g. 44.0g), no conversion needed
+      if (row.egg_weight_actual != null && row.egg_weight_actual !== 0) { s.egg.sum += row.egg_weight_actual; s.egg.count++; }
       // FCR
       if (row.fcr_actual != null && row.fcr_actual !== 0)  { s.fcr.sum += row.fcr_actual; s.fcr.count++; }
       // Feed intake (g/bird/day)
@@ -433,6 +436,9 @@ export default function App() {
     }
 
     switch (activeTab) {
+      case 'sop':
+        return <SopTracker farms={farms} />;
+
       case 'overview':
         return (
           <div className="animate-fade-in">
@@ -601,6 +607,8 @@ export default function App() {
                 </div>
               );
             })()}
+
+            <HDPerformanceTable />
           </div>
         );
 
@@ -1001,6 +1009,7 @@ export default function App() {
              <NavItem icon={<AlertTriangle size={20} />} label="Diagnostics" active={activeTab === 'gaps'} onClick={() => setActiveTab('gaps')} collapsed={!isSidebarOpen} />
              <NavItem icon={<TrendingDown size={20} />} label="Deep Metrics" active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')} collapsed={!isSidebarOpen} />
              <NavItem icon={<Columns2 size={20} />} label="Comparison" active={activeTab === 'comparison'} onClick={() => setActiveTab('comparison')} collapsed={!isSidebarOpen} />
+             <NavItem icon={<ClipboardCheck size={20} />} label="SOP Tracker" active={activeTab === 'sop'} onClick={() => setActiveTab('sop')} collapsed={!isSidebarOpen} />
              <NavItem icon={<MessageSquare size={20} />} label="AI Assistant" active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} collapsed={!isSidebarOpen} />
              
              <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
@@ -1018,27 +1027,29 @@ export default function App() {
         {/* Main Content */}
         <main style={{ flex: 1, padding: '2rem 3rem', minHeight: '100vh', backgroundColor: '#050505', display: 'flex', justifyContent: 'center', overflowX: 'hidden' }}>
           <div style={{ width: '100%', maxWidth: '1600px' }}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
-              <div>
-                <h2 style={{ fontSize: '1.875rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                  {activeTab === 'overview' ? 'Executive Dashboard' :
-                    activeTab === 'farms' ? 'Farm Management' :
-                      activeTab === 'gaps' ? 'Performance Alerts' :
-                        activeTab === 'comparison' ? 'Unit Comparison' :
-                          activeTab === 'ai' ? 'Intelligence Hub' : 'Production Analytics'}
+            {activeTab !== 'sop' && (
+              <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.875rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                    {activeTab === 'overview' ? 'Executive Dashboard' :
+                      activeTab === 'farms' ? 'Farm Management' :
+                        activeTab === 'gaps' ? 'Performance Alerts' :
+                          activeTab === 'comparison' ? 'Unit Comparison' :
+                            activeTab === 'ai' ? 'Intelligence Hub' : 'Production Analytics'}
 
-                </h2>
-                <p style={{ color: 'var(--muted-foreground)' }}>
-                  {activeTab === 'overview' ? 'Real-time production intelligence and gap analysis.' :
-                    activeTab === 'farms' ? 'Inventory and population per kandang unit.' :
-                      activeTab === 'gaps' ? 'Critical deviations detected by AI engine.' :
-                        activeTab === 'comparison' ? 'Side-by-side production analysis.' :
-                          activeTab === 'ai' ? 'Advanced multi-modal model for farm insights.' : 'Statistical models and trend forecasting.'}
+                  </h2>
+                  <p style={{ color: 'var(--muted-foreground)' }}>
+                    {activeTab === 'overview' ? 'Real-time production intelligence and gap analysis.' :
+                      activeTab === 'farms' ? 'Inventory and population per kandang unit.' :
+                        activeTab === 'gaps' ? 'Critical deviations detected by AI engine.' :
+                          activeTab === 'comparison' ? 'Side-by-side production analysis.' :
+                            activeTab === 'ai' ? 'Advanced multi-modal model for farm insights.' : 'Statistical models and trend forecasting.'}
 
-                </p>
-              </div>
-              {/* Removed manual Refresh component since data is synced automatically at midnight */}
-            </header>
+                  </p>
+                </div>
+                {/* Removed manual Refresh component since data is synced automatically at midnight */}
+              </header>
+            )}
 
             {renderContent()}
           </div>

@@ -178,8 +178,15 @@ class GoogleDriveTool:
             hd_idx = find_col(['% HD', 'HD %', 'HD%', 'ACTUAL %', 'HD'], ['% HD', 'ACTUAL %'])
             if hd_idx is not None and 'hd_act' not in indices: indices['hd_act'] = hd_idx
             
-            # Egg Weight (Grams/Butir or G/BTR)
-            ew_idx = find_col(['G/BTR', 'KG/BUTIR', 'KG/BTR', 'EGG WEIGHT', 'G/BTR'], ['G/BTR'])
+            # Egg Weight (Grams/Butir — g/btr column ONLY)
+            # IMPORTANT: do NOT match 'Kg' (total kg) or 'Kg/1000' (egg mass).
+            # Only look for explicit 'G/BTR' or 'g/btr' which is grams-per-egg.
+            ew_idx = None
+            for ci, val in enumerate(row_vals):
+                # Exact match only — 'G/BTR' must be the cell value (not a substring of Kg, Kum, etc.)
+                if val in ['G/BTR', 'G BTR', 'GRAM/BTR', 'EGG WEIGHT (G)', 'BERAT BTR']:
+                    ew_idx = ci
+                    break
             if ew_idx is not None and 'ew_act' not in indices:
                 indices['ew_act'] = ew_idx
                 if ew_idx + 1 < len(row_vals) and 'STD' in row_vals[ew_idx + 1]:
@@ -360,8 +367,10 @@ class GoogleDriveTool:
         if any(x in s for x in ["LOADING", "#N/A", "#VALUE!", "#REF!", "#DIV/0!", "NAN"]): 
             return None
         try:
-            if isinstance(val, str) and '%' in val:
-                return float(val.replace('%', '').strip())
+            if isinstance(val, str):
+                val = val.replace(',', '').replace('%', '').strip()
+            if not val:
+                return None
             f_val = float(val)
             return f_val if pd.notna(f_val) else None
         except:
@@ -389,19 +398,31 @@ class GoogleDriveTool:
             if not rows:
                 return None
             # Pad rows to equal length and build a DataFrame
-            max_len = max(len(r) for r in rows)
-            padded = [r + [None] * (max_len - len(r)) for r in rows]
-            return pd.DataFrame(padded)
+            if not rows: return None
+            df = pd.DataFrame(rows)
+            idx = self._find_harian_columns(df)
+            if 'date' not in idx or 'btr' not in idx: return None
+            daily_data = []
+            for i in range(1, len(df)):
+                row = df.iloc[i]
+                try:
+                    dt = pd.to_datetime(row[idx['date']])
+                    btr = float(row[idx['btr']])
+                    if pd.notna(dt) and populasi and populasi > 0:
+                        hd = (btr / populasi) * 100
+                        daily_data.append({'date': dt.strftime('%Y-%m-%d'), 'hd': round(hd, 2)})
+                except: continue
+            return daily_data
         except Exception as e:
-            print(f"  [Sheets API] Failed to read Data_Out for {file_id}: {e}")
+            print(f"  [Sheets API] Failed to read Daily Harian for {file_id}: {e}")
             return None
 
-    def extract_data_from_excel(self, file_content, farm_name, file_name, file_id=None):
+    def extract_data_from_excel(self, file_content, farm_name, file_name, file_id=None, populasi=None):
         """Extracts production data from an Excel file stream."""
         kandang_name = re.sub(r'^(REC\s+KD\s+|Rec\s+P\.\s+fajar\s+kd\s+|Recording\s+)', '', file_name, flags=re.IGNORECASE)
         kandang_name = re.sub(r'^(REC\s+KD\s+|Rec\s+P.\s+fajar\s+kd\s+|Recording\s+)', '', file_name, flags=re.IGNORECASE)
         kandang_name = kandang_name.replace('.xlsx', '').strip()
-        data = {'farm': farm_name, 'kandang': kandang_name, 'weekly': [], 'daily': [], 'populasi': 0}
+        data = {'farm': farm_name, 'kandang': kandang_name, 'weekly': [], 'daily': [], 'populasi': populasi or 0}
         try:
             df = None
             if file_id and self.sheets_service:
@@ -454,7 +475,9 @@ class GoogleDriveTool:
                         # is_future is based on the spreadsheet's own "now" if it's an old file
                         # but we still want to capped at real now for truly future rows
                         is_future = dt_obj.date() > min(max_sheet_date, datetime.now().date())
-                    except: continue
+                    except Exception as e:
+                        print(f"      [DEBUG] pd.to_datetime failed for {repr(date_val)}: {e}")
+                        continue
                     
                     def safe_int(v):
                         try:
@@ -473,37 +496,55 @@ class GoogleDriveTool:
                         return None
 
                     hd_act_val = get_act_val('hd_act', 5, 2)
+                    if hd_act_val is not None and 0 < hd_act_val <= 1.0:
+                        hd_act_val = self._clamp(hd_act_val * 100, 5, 2)
                     
-                    # Harian fallback for HD% only — when Data_Out has 'Loading...' formula placeholder
+                    # Harian fallback for HD% — ONLY when the cell contains a formula
+                    # placeholder like 'LOADING...' or '#N/A' (i.e. data exists but hasn't
+                    # resolved yet). If the raw cell is genuinely NaN/empty, the week hasn't
+                    # been recorded yet — skip it rather than pulling partial harian data.
                     if hd_act_val is None and not is_future:
-                        if 'harian_data' not in locals():
-                            file_content.seek(0)
-                            harian_data = self._get_harian_data_full(file_content)
-                        if harian_data and int(week_no) in harian_data:
-                            har = harian_data[int(week_no)]
-                            hd_val = har.get('hd') if isinstance(har, dict) else har
-                            hd_act_val = self._clamp(hd_val, 5, 2)
+                        raw_hd_cell = row[idx['hd_act']] if 'hd_act' in idx else None
+                        cell_str = str(raw_hd_cell).strip().upper() if raw_hd_cell is not None else ''
+                        is_placeholder = (
+                            cell_str not in ('', 'NAN', 'NONE', '0', '0.0')
+                            and not (raw_hd_cell != raw_hd_cell)  # not NaN
+                        )
+                        if is_placeholder:
+                            if 'harian_data' not in locals():
+                                file_content.seek(0)
+                                harian_data = self._get_harian_data_full(file_content, populasi=populasi)
+                            if harian_data and int(week_no) in harian_data:
+                                har = harian_data[int(week_no)]
+                                hd_val = har.get('hd') if isinstance(har, dict) else har
+                                hd_act_val = self._clamp(hd_val, 5, 2)
 
                     hd_std = get_val(row, 'hd_std')
+                    if hd_std is not None and 0 < hd_std <= 1.0:
+                        hd_std = self._clamp(hd_std * 100, 5, 2)
                     
                     # Determine if this row has actual production activity
                     has_activity = (hd_act_val is not None) 
 
                     # Include row if there's actual data OR if there's standard data up to week 90
-                    if hd_act_val is not None or (week_no <= 90 and (hd_std or 0) > 0):
+                    # Exclude future rows entirely — Data_Out pre-fills std values for all 90
+                    # weeks, including future ones. Future rows have no actual data and should
+                    # never enter the weekly list (they get filtered again in incremental_sync,
+                    # but excluding them here saves memory and avoids confusion).
+                    if not is_future and (hd_act_val is not None or (week_no <= 90 and (hd_std or 0) > 0)):
                         data['weekly'].append({
                             'date': date_str, 'usia_minggu': int(week_no),
                             'hd_actual': hd_act_val,
                             'hd_std': self._clamp(hd_std, 5, 2),
-                            'egg_weight_actual': get_act_val('ew_act', 6, 2),
-                            'egg_weight_std': self._clamp(get_val(row, 'ew_std'), 6, 2),
-                            'egg_mass_actual': get_act_val('em_act', 6, 2),
+                            'egg_weight_actual': (lambda v: v if v is not None and 30 <= v <= 100 else None)(get_act_val('ew_act', 6, 2)) if has_activity else None,
+                            'egg_weight_std': (lambda v: v if v is not None and 30 <= v <= 100 else None)(self._clamp(get_val(row, 'ew_std'), 6, 2)),
+                            'egg_mass_actual': get_act_val('em_act', 6, 2) if has_activity else None,
                             'egg_mass_std': self._clamp(get_val(row, 'em_std'), 6, 2),
-                            'fcr_actual': get_act_val('fcr_act', 6, 3),
+                            'fcr_actual': get_act_val('fcr_act', 6, 3) if has_activity else None,
                             'fcr_std': self._clamp(get_val(row, 'fcr_std'), 6, 3),
                             'fcr_cum': self._clamp(get_val(row, 'fcr_cum'), 6, 3),
-                            'pakan_kg': get_act_val('pakan_kg', 8, 2),
-                            'pakan_g_per_ekor_hr': get_act_val('pakan_act', 6, 2),
+                            'pakan_kg': get_act_val('pakan_kg', 8, 2) if has_activity else None,
+                            'pakan_g_per_ekor_hr': get_act_val('pakan_act', 6, 2) if has_activity else None,
                             'pakan_std': self._clamp(get_val(row, 'pakan_std'), 6, 2),
                             'deplesi_ekor': safe_int(get_val(row, 'deplesi_ekor')) if has_activity else None,
                             'deplesi_cum': safe_int(get_val(row, 'deplesi_cum')) if has_activity else None,
@@ -513,6 +554,13 @@ class GoogleDriveTool:
             print(f"Error extracting {file_name}: {e}")
             import traceback
             traceback.print_exc()
+            
+        # Append daily data
+        if file_id and self.sheets_service:
+            daily_rows = self._extract_daily_production_api(file_id, populasi)
+            if daily_rows:
+                data['daily'] = daily_rows
+                
         return data
 
     def _find_harian_columns(self, df):
@@ -521,8 +569,9 @@ class GoogleDriveTool:
             row = [str(x).upper() for x in df.iloc[r]]
             for i, val in enumerate(row):
                 if any(x in val for x in ['TGL', 'TANGGAL']) and 'date' not in indices: indices['date'] = i
-                if any(x in val for x in ['WEEK', 'MINGGU', '(MG)']) and 'week' not in indices: indices['week'] = i
-                if any(x in val for x in ['TOTAL BTR', 'HASIL BTR']) and 'btr' not in indices: indices['btr'] = i
+                if any(x in val for x in ['USIA', '(MINGGU)']) and 'week' not in indices and i != indices.get('date'): indices['week'] = i
+                if any(x in val for x in ['HD%', '%HD', 'HD (%)']) and 'hd' not in indices: indices['hd'] = i
+                if any(x in val for x in ['TOTAL BTR', 'HASIL BTR', 'PRODUKSI TELUR']) and 'btr' not in indices and 'HD%' not in val: indices['btr'] = i
                 if any(x in val for x in ['PAKAN KG', 'KG PAKAN']) and 'pakan_kg' not in indices: indices['pakan_kg'] = i
                 if any(x in val for x in ['G/EKOR', 'GRAM/EKOR', 'G/E/H']) and 'pakan_g' not in indices: indices['pakan_g'] = i
                 # egg weight in grams per butir
@@ -534,7 +583,6 @@ class GoogleDriveTool:
                 if any(x in val for x in ['% DEPLESI', 'DEPLESI %', '% CUM', '%DEPLESI']) and 'dep_pct' not in indices: indices['dep_pct'] = i
                 # FCR
                 if 'FCR' in val and 'CUM' not in val and 'fcr' not in indices: indices['fcr'] = i
-            if len(indices) >= 2: break
         return indices
 
     def _get_harian_data_full(self, file_content, populasi=None):
@@ -552,13 +600,12 @@ class GoogleDriveTool:
             df = pd.DataFrame(data)
             
             idx = self._find_harian_columns(df)
-            if 'week' not in idx or 'btr' not in idx: return None
+            if 'week' not in idx: return None
             
             pop = populasi or 2000  # default population
             
             # Aggregate daily rows -> weekly sums
             week_data = {}
-            week_cum_dep = {}  # track cumulative deplesi across weeks
             
             for i in range(len(df)):
                 try:
@@ -567,14 +614,30 @@ class GoogleDriveTool:
                 except: continue
                 
                 if w not in week_data:
-                    week_data[w] = {'eggs': 0, 'pakan_kg': 0, 'pakan_g_days': [], 
-                                    'ew_vals': [], 'dep_ekor': 0, 'days': 0, 'fcr_vals': []}
+                    week_data[w] = {
+                        'eggs': 0, 'pakan_kg': 0, 'pakan_g_days': [],
+                        'ew_vals': [], 'dep_ekor': 0, 'days': 0, 'fcr_vals': [],
+                        'hd_vals': [],  # collect daily HD% values directly from column
+                    }
                 
-                try:
-                    eggs = float(str(df.iloc[i, idx['btr']] or 0))
-                    week_data[w]['eggs'] += eggs
-                    week_data[w]['days'] += 1
-                except: pass
+                # --- HD% : read directly from the HD% column (most accurate) ---
+                if 'hd' in idx:
+                    try:
+                        hd_raw = self._safe_float(df.iloc[i, idx['hd']])
+                        if hd_raw is not None and hd_raw > 0:
+                            # normalize: values stored as fraction (0-1) -> convert to pct
+                            hd_pct = hd_raw * 100 if hd_raw <= 1.0 else hd_raw
+                            week_data[w]['hd_vals'].append(hd_pct)
+                    except: pass
+                
+                # --- egg count (fallback for HD% and for egg_mass) ---
+                if 'btr' in idx:
+                    try:
+                        eggs = float(str(df.iloc[i, idx['btr']] or 0))
+                        if eggs > 0:
+                            week_data[w]['eggs'] += eggs
+                            week_data[w]['days'] += 1
+                    except: pass
                 
                 if 'pakan_kg' in idx:
                     try:
@@ -611,15 +674,33 @@ class GoogleDriveTool:
             results = {}
             for w in sorted(week_data.keys()):
                 d = week_data[w]
-                days = max(d['days'], 7)
                 eggs = d['eggs']
-                hd = (eggs / (pop * days)) * 100 if pop > 0 else None
+                days = max(d['days'], 1)
+                
+                # HD%: prefer direct column values; fall back to eggs/pop/days
+                if d['hd_vals']:
+                    avg_hd = sum(d['hd_vals']) / len(d['hd_vals'])
+                    if len(d['hd_vals']) >= 4:
+                        # At least 4 days recorded — trust the average
+                        hd = avg_hd
+                    elif avg_hd >= 20.0:
+                        # Fewer days but average is reasonable (e.g. early ramp-up weeks)
+                        hd = avg_hd
+                    else:
+                        # Too few valid days AND suspiciously low — likely incomplete sheet entry
+                        hd = None
+                elif eggs > 0 and pop > 0:
+                    # Always divide by 7 (full week denominator) so partial-week entries
+                    # don't get artificially inflated by a 'days' = 1 denominator
+                    hd = (eggs / (pop * 7)) * 100
+                    if hd < 15.0:  # < 15% from egg count alone → incomplete data
+                        hd = None
+                else:
+                    hd = None
                 
                 cum_dep += d['dep_ekor']
                 dep_pct_cum = (cum_dep / pop) * 100 if pop > 0 else None
                 
-                # Berat Telur Kg/1000: total egg weight in kg / (pop / 1000)
-                # Approximation: avg_ew_g/1000 * eggs / 1000 * 1000 = ew_g * eggs / 1000
                 ew_avg = sum(d['ew_vals']) / len(d['ew_vals']) if d['ew_vals'] else None
                 em = (ew_avg * eggs / 1000) if (ew_avg and eggs) else None
                 
@@ -641,6 +722,110 @@ class GoogleDriveTool:
             print(f"Harian Fallback Error: {e}")
             import traceback; traceback.print_exc()
             return None
+
+    def _extract_daily_production_api(self, file_id, populasi):
+        print(f"      [DEBUG] Starting daily extraction for file_id: {file_id}")
+        try:
+            HARIAN_NAMES = ['Data Harian', 'data harian', 'DATA HARIAN']
+            rows = None
+            for sname in HARIAN_NAMES:
+                try:
+                    result = self.sheets_service.spreadsheets().values().get(
+                        spreadsheetId=file_id,
+                        range=f"'{sname}'!A1:Z1500",
+                        valueRenderOption='UNFORMATTED_VALUE',
+                        dateTimeRenderOption='FORMATTED_STRING'
+                    ).execute()
+                    candidate = result.get('values', [])
+                    if candidate:
+                        rows = candidate
+                        print(f"      [DEBUG] Found {len(rows)} rows in sheet '{sname}'")
+                        break
+                except Exception as e:
+                    print(f"      [DEBUG] Failed to read '{sname}': {e}")
+                    continue
+
+            if not rows:
+                print(f"      [DEBUG] No rows found in any Harian sheet.")
+                return []
+
+            max_len = max(len(r) for r in rows)
+            padded = [r + [None] * (max_len - len(r)) for r in rows]
+            df = pd.DataFrame(padded)
+
+            idx = self._find_harian_columns(df)
+            if 'date' not in idx or 'week' not in idx or 'btr' not in idx:
+                print(f"      [DEBUG] Missing columns in daily extraction. Found: {idx.keys()}")
+                return []
+
+            daily_list = []
+            pop = populasi or 2000
+            current_w = 0
+            for i in range(len(df)):
+                row = df.iloc[i]
+                d_val = row[idx['date']]
+                w_val = row[idx['week']]
+                
+                try:
+                    if w_val and str(w_val).strip():
+                        current_w = int(float(str(w_val)))
+                except: pass
+
+                if current_w <= 0 or current_w > 95: continue
+                w = current_w
+
+                date_str = None
+                if isinstance(d_val, str) and len(d_val) >= 8:
+                    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%b-%y", "%d-%b-%Y"]:
+                        try:
+                            date_str = datetime.strptime(d_val.split()[0], fmt).strftime("%Y-%m-%d")
+                            break
+                        except: continue
+                if not date_str: continue
+
+                hd_actual = None
+                try:
+                    if 'hd' in idx:
+                        hd_val = self._safe_float(row.iloc[idx['hd']] if hasattr(row, 'iloc') else row[idx['hd']])
+                        if hd_val is not None:
+                            # if somehow it's less than 1, might be fractional
+                            hd_actual = hd_val * 100 if 0 < hd_val <= 1 else hd_val
+                    elif 'btr' in idx:
+                        btr_raw = row.iloc[idx['btr']] if hasattr(row, 'iloc') else row[idx['btr']]
+                        btr = self._safe_float(btr_raw)
+                        if btr and btr > 0 and pop > 0:
+                            hd_actual = self._clamp((btr / pop) * 100, 5, 2)
+                except: pass
+
+                pakan_kg = self._safe_float(row[idx['pakan_kg']]) if 'pakan_kg' in idx else None
+                pakan_g = self._safe_float(row[idx['pakan_g']]) if 'pakan_g' in idx else None
+                
+                deplesi_ekor = None
+                if 'dep_ekor' in idx:
+                    try: deplesi_ekor = int(float(str(row[idx['dep_ekor']] or 0)))
+                    except: pass
+                
+                fcr = self._safe_float(row[idx['fcr']]) if 'fcr' in idx else None
+
+                if hd_actual is None and deplesi_ekor is None: continue
+
+                daily_list.append({
+                    'tanggal': date_str,
+                    'usia_minggu': w,
+                    'hd_actual': hd_actual,
+                    'pakan_kg_hr': self._clamp(pakan_kg, 8, 2),
+                    'pakan_gr_ekor': self._clamp(pakan_g, 6, 2),
+                    'deplesi_ekor': deplesi_ekor,
+                    'fcr_actual': self._clamp(fcr, 6, 3)
+                })
+
+            print(f"      [DEBUG] Successfully extracted {len(daily_list)} daily records.")
+            return daily_list
+        except Exception as e:
+            print(f"      [DEBUG] Error extracting daily production api: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
     def get_computed_population(self, file_id, file_name):
         # Strain/farm metadata lookup — used for kandang registration only
@@ -780,7 +965,7 @@ class GoogleDriveTool:
                 print(f"Syncing {file['name']} ({farm_name})...")
                 pop, date_str, strain = self.get_computed_population(file['id'], file['name'])
                 content = self.download_file(file['id'])
-                extracted = self.extract_data_from_excel(io.BytesIO(content.getvalue()), farm_name, file['name'], file_id=file['id'])
+                extracted = self.extract_data_from_excel(io.BytesIO(content.getvalue()), farm_name, file['name'], file_id=file['id'], populasi=pop)
                 if date_str: extracted['populasi'] = pop; extracted['last_recorded_date'] = date_str
                 if strain: extracted['strain'] = strain
                 all_data.append(extracted)
@@ -817,7 +1002,7 @@ class GoogleDriveTool:
                 print(f"Syncing {file['name']} (BBK)...")
                 pop, date_str, strain = self.get_computed_population(file['id'], file['name'])
                 content = self.download_file(file['id'])
-                extracted = self.extract_data_from_excel(io.BytesIO(content.getvalue()), "Kandang BBK", file['name'], file_id=file['id'])
+                extracted = self.extract_data_from_excel(io.BytesIO(content.getvalue()), "Kandang BBK", file['name'], file_id=file['id'], populasi=pop)
                 if date_str: extracted['populasi'] = pop; extracted['last_recorded_date'] = date_str
                 if strain: extracted['strain'] = strain
                 all_data.append(extracted)
@@ -828,7 +1013,7 @@ class GoogleDriveTool:
                 print(f"Syncing {file['name']} (JTP)...")
                 pop, date_str, strain = self.get_computed_population(file['id'], file['name'])
                 content = self.download_file(file['id'])
-                extracted = self.extract_data_from_excel(io.BytesIO(content.getvalue()), "Kandang JTP", file['name'], file_id=file['id'])
+                extracted = self.extract_data_from_excel(io.BytesIO(content.getvalue()), "Kandang JTP", file['name'], file_id=file['id'], populasi=pop)
                 if date_str: extracted['populasi'] = pop; extracted['last_recorded_date'] = date_str
                 if strain: extracted['strain'] = strain
                 all_data.append(extracted)

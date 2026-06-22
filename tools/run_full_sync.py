@@ -50,6 +50,9 @@ def run_orchestration():
                 db_sync.update_kandang_population(kandang_id, farm_data['populasi'])
                 
             db_sync.sync_weekly_production(kandang_id, weekly_records)
+            if 'daily' in farm_data and farm_data['daily']:
+                print(f"    Syncing {len(farm_data['daily'])} daily records...")
+                db_sync.sync_daily_production(kandang_id, farm_data['daily'])
         except Exception as e:
             print(f"    Error syncing {kandang_name}: {e}")
 

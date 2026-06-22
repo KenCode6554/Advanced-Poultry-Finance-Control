@@ -173,6 +173,60 @@ class DbSync:
             return final_check.count > 0
         return False # Return False if no payloads were processed
 
+    def sync_daily_production(self, kandang_id, daily_data_list):
+        """Bulk upsert daily production records with safety clamping."""
+        if daily_data_list:
+            self.client.table('daily_production').delete().eq('kandang_id', kandang_id).execute()
+
+        def clamp(val, precision, scale=2):
+            if val is None: return None
+            whole_digits = precision - scale
+            limit = 10**whole_digits - (1 / 10**scale)
+            try:
+                f_val = float(val)
+                if abs(f_val) > limit:
+                    return limit if f_val > 0 else -limit
+                return f_val
+            except:
+                return None
+
+        all_payloads = []
+        for record in daily_data_list:
+            payload = {
+                'kandang_id': kandang_id,
+                'tanggal': record.get('tanggal') or record.get('date'),
+                'usia_minggu': record.get('usia_minggu'),
+                'hd_actual': clamp(record.get('hd_actual'), 5, 2),
+                'pakan_kg_hr': clamp(record.get('pakan_kg_hr'), 8, 2),
+                'pakan_gr_ekor': clamp(record.get('pakan_gr_ekor'), 6, 2),
+                'deplesi_ekor': record.get('deplesi_ekor'),
+                'fcr_actual': clamp(record.get('fcr_actual'), 6, 3),
+            }
+            
+            for k, v in payload.items():
+                if isinstance(v, float) and (v != v):
+                    payload[k] = None
+            
+            all_payloads.append(payload)
+
+        if all_payloads:
+            print(f"      [DB] Preparing to insert {len(all_payloads)} DAILY records for {kandang_id}...")
+            
+            success_count = 0
+            batch_size = 100
+            for i in range(0, len(all_payloads), batch_size):
+                batch = all_payloads[i:i+batch_size]
+                try:
+                    res = self.client.table('daily_production').upsert(batch).execute()
+                    if res.data:
+                        success_count += len(res.data)
+                except Exception as e:
+                    print(f"      [DB] !! Exception inserting daily batch: {str(e)}")
+            
+            print(f"      [DB] Successfully inserted/updated {success_count} / {len(all_payloads)} daily records.")
+            return success_count > 0
+        return False
+
     def sync_gap_warnings(self, warnings):
         """Upsert gap warnings into DB"""
         if warnings:
